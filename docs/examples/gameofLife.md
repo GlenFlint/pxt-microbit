@@ -15,20 +15,43 @@ Depending on the pattern of living cells at the start of the game, some populati
 
 ## Game of Life simulation in LEDs
 
-Here's a program that simulates cell life in the LED matrix. Use button ``A`` for the next stage of life and button ``B`` to reset.
+Here's a program that simulates cell life in the LED matrix. Use button ``A`` to cycle through some predefined oscillators and button ``B`` to reset.
 
 ```typescript
 //https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life
-let lifeChart: Image = null
 
-//Use button A for the next iteration of game of life
-input.onButtonPressed(Button.A, () => {
-    gameOfLife();
-    show();
+let lifeChart: Image = null
+let lastState: boolean[] = []
+let penultimateState: boolean[] = []
+let state: boolean[] = []
+
+let blinker: boolean[] = []
+let toad: boolean[] = []
+let beacon: boolean[] = []
+let stopSign: boolean[] = []
+let mediumStopSign: boolean[] = []
+let longStopSign: boolean[] = []
+
+let nextOscillator = 0
+let oscillationCounter = 0
+let MAX_ITERATIONS = 10
+
+// Use button A to cycle through preset oscillators.
+input.onButtonPressed(Button.A, function () {
+    let oscillators: boolean[][] = [
+        blinker, toad, beacon, stopSign, mediumStopSign, longStopSign]
+
+    let oscillator: boolean[] = oscillators[nextOscillator]
+
+    state = oscillator.slice(0, state.length)
+    nextOscillator += 1;
+    nextOscillator %= oscillators.length;
+
+    oscillationCounter = 0;
 })
 
-//Use button B for reseting to random initial seed state
-input.onButtonPressed(Button.B, () => {
+// Use button B for reseting to random initial seed state.
+input.onButtonPressed(Button.B, function () {
     reset();
     show();
 })
@@ -41,15 +64,54 @@ lifeChart = images.createImage(`
     . . . . .
     `)
 
-//State holds the information about pixel is live or dead
-//false means dead, true means live.
-let state = [false, false, false, false, false,
+// State holds the information about pixel is live or
+// dead false means dead, true means live.
+state = [
+    false, false, false, false, false,
     false, false, false, false, false,
     false, false, false, false, false,
     false, false, false, false, false,
     false, false, false, false, false]
 
-//get & set on any array
+// Predefined oscillators.
+blinker = [
+    false, false, false, false, false,
+    false, false, true, false, false,
+    false, false, true, false, false,
+    false, false, true, false, false,
+    false, false, false, false, false]
+toad = [
+    false, false, false, false, false,
+    false, false, true, false, false,
+    false, true, true, false, false,
+    false, true, true, false, false,
+    false, true, false, false, false]
+beacon = [
+    false, false, false, false, false,
+    false, true, true, false, false,
+    false, true, true, false, false,
+    false, false, false, true, true,
+    false, false, false, true, true]
+stopSign = [
+    false, true, true, true, false,
+    true, false, false, false, true,
+    true, false, false, false, true,
+    true, false, false, false, true,
+    false, true, true, true, false]
+mediumStopSign = [
+    false, false, false, true, false,
+    true, false, false, false, true,
+    true, false, false, false, true,
+    true, false, false, false, true,
+    false, true, true, true, false]
+longStopSign = [
+    false, false, true, true, false,
+    true, false, false, false, true,
+    true, false, false, false, true,
+    true, false, false, false, true,
+    false, true, true, true, false]
+
+// get & set on any array
 function getState(arr: boolean[], x: number, y: number): boolean {
     return arr[x * 5 + y];
 }
@@ -57,16 +119,17 @@ function setState(arr: boolean[], x: number, y: number, value: boolean): void {
     arr[x * 5 + y] = value;
 }
 
-//Generate random initial state.
+// Generate random initial state.
 function reset() {
     for (let x = 0; x < 5; x++) {
         for (let y = 0; y < 5; y++) {
             setState(state, x, y, Math.randomBoolean());
         }
     }
+    oscillationCounter = 0;
 }
 
-//Show the lifeChart based on the state
+// Show the lifeChart based on the state
 function show() {
     for (let x = 0; x < 5; x++) {
         for (let y = 0; y < 5; y++) {
@@ -76,14 +139,13 @@ function show() {
     lifeChart.plotImage(0);
 }
 
-//Core function
+// Core function
 function gameOfLife() {
-    let result: boolean[] = [];
-    let count = 0;
+    let result: boolean[] = []
 
     for (let x = 0; x < 5; x++) {
         for (let y = 0; y < 5; y++) {
-            count = 0;
+            let count = 0;
 
             //Count the live cells in the next row
             if ((x + 1) < 5) {
@@ -98,7 +160,7 @@ function gameOfLife() {
                 }
             }
 
-            //Count the live cells in the previous row
+            // Count the live cells in the previous row
             if ((x - 1) >= 0) {
                 if (getState(state, x - 1, y)) {
                     count++;
@@ -110,8 +172,7 @@ function gameOfLife() {
                     count++;
                 }
             }
-
-            //Count the live cells in the current row exlcuding the current position.
+            // Count the live cells in the current row excluding the current position.
             if ((y - 1 >= 0) && getState(state, x, y - 1)) {
                 count++;
             }
@@ -133,10 +194,47 @@ function gameOfLife() {
             }
         }
     }
-    //Update the state
+    // Update the state
     state = result;
 }
-//Initial reset & show
+
+// Stop the game once the state does not change.
+// Allow the game to cycle between two states a little while before stopping.
+// Haven't figured out an easy was to check for long cycles.
+function continueGame() {
+    let different = !compareArrays(state, lastState);
+    let iterate   = different;
+
+    if (different) {
+        let matchEarlier = compareArrays(state, penultimateState);
+
+        if (matchEarlier) {
+            iterate = oscillationCounter++ < MAX_ITERATIONS;
+        }
+    }
+    return iterate;
+}
+
+// Compare arrays a and b - return true if equal.
+function compareArrays(a: boolean[], b: boolean[]) {
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Initial reset & loop to show current state and compute next.
 reset();
-show();
+basic.forever(function () {
+    show();
+    penultimateState = lastState.slice(0, state.length);
+    lastState = state.slice(0, state.length);
+    gameOfLife();
+    basic.pause(1000);
+    if (!(continueGame())) {
+        reset();
+    }
+})
 ```
